@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Life Simulator</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Life Simulator</h1>
+            {% if game and game.player %}
+            <div class="status-bar">
+                <span>{{ game.player.full_name() }}</span>
+                <span>Age: {{ game.player.age }}</span>
+                <span>Year: {{ game.current_year }}</span>
+                <span>Gen: {{ game.generation }}</span>
+            </div>
+            {% endif %}
+        </header>
+        
+        <main>
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+</body>
+</html>
