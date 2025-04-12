@@ -68,6 +68,7 @@ class Person:
         self.family_education = family_education
         self.nationality = nationality
         self.religion = religion
+        self.is_married = False  # Track marriage status
 
     def full_name(self):
         return f"{self.first_name} {self.last_name}"
@@ -92,8 +93,9 @@ class Person:
             'children': [child.to_dict() for child in self.children],
             'family_wealth': self.family_wealth,
             'family_education': str(self.family_education),
-            'nationality': str(self.nationality),  # Convert enum to string
-            'religion': str(self.religion)  # Convert enum to string
+            'nationality': str(self.nationality),
+            'religion': str(self.religion),
+            'is_married': self.is_married
         }
 
     @classmethod
@@ -124,6 +126,7 @@ class Person:
         if data['spouse']:
             person.spouse = cls.from_dict(data['spouse'])
         person.children = [cls.from_dict(child) for child in data.get('children', [])]
+        person.is_married = data.get('is_married', False)
         return person
 
 # LifeSimulator class
@@ -246,6 +249,15 @@ class LifeSimulator:
             if self.player.age > 60:
                 self.player.health = max(0, self.player.health - 1 - health_mod[socio_class.name])
 
+        # Retirement at 60
+        if self.player.age >= 60 and self.player.job:
+            self.add_notification(f"{self.player.first_name} has retired from {self.player.job}.")
+            self.player.job = None
+            self.player.salary = 0
+            # Optional pension: small income based on wealth
+            if self.player.wealth > 0:
+                self.player.wealth += min(self.player.wealth * 0.02, 1000)  # Up to 1000/month pension
+
         if self.player.job:
             self.player.wealth += (self.player.salary / 12) * wealth_mod[socio_class.name]
             self.family_assets += (self.player.salary / 12) * 0.1
@@ -260,6 +272,12 @@ class LifeSimulator:
     def check_death(self):
         if not self.player:
             return False
+        # Death guaranteed at age 100
+        if self.player.age >= 100:
+            self.player.is_alive = False
+            self.handle_death()
+            return True
+        # Death possible if health < 20 and age >= 20
         if self.player.health < 20 and self.player.age >= 20:
             death_chance = (20 - self.player.health) * 0.01 + (self.player.age - 20) * 0.005
             socio_mod = {'POOR': 1.2, 'MIDDLE': 1.0, 'WEALTHY': 0.8}[self.determine_socio_class().name]
@@ -279,13 +297,18 @@ class LifeSimulator:
             self.add_notification(f"{self.player.first_name} starts kindergarten!")
         elif age == 18:
             self.coming_of_age_event()
-        elif age >= 20 and random.random() < 0.1 and not self.player.spouse:
+        elif age >= 20 and age <= 50 and random.random() < 0.1 and not self.player.spouse:
             self.relationship_event()
-        elif age >= 22 and random.random() < 0.05 and self.player.spouse:
-            self.child_event()
-        elif age >= 20 and random.random() < 0.1 and not self.player.job:
+        elif age >= 20 and age <= 50 and random.random() < 0.1 and self.player.spouse and not self.player.is_married:
+            self.marriage_event()
+        elif age >= 22 and age <= 45 and random.random() < 0.05 and self.player.is_married:
+            if self.player.gender == "Female" and self.player.spouse.gender == "Male":
+                self.pregnancy_event()
+            else:
+                self.child_event()
+        elif age >= 20 and age < 60 and random.random() < 0.1 and not self.player.job:
             self.job_event()
-        elif age >= 25 and random.random() < 0.05:
+        elif age >= 25 and age < 60 and random.random() < 0.05:
             self.adoption_event()
         elif age >= 18 and random.random() < 0.03:
             self.gender_reassignment_event()
@@ -293,7 +316,7 @@ class LifeSimulator:
             self.nationality_change_event()
         elif age >= 20 and random.random() < 0.04:
             self.religion_change_event()
-        elif age >= 30 and random.random() < 0.06 and self.player.job:
+        elif age >= 30 and age < 60 and random.random() < 0.06 and self.player.job:
             self.career_change_event()
 
     def coming_of_age_event(self):
@@ -305,7 +328,7 @@ class LifeSimulator:
             {'text': f"Work as Cashier ({currency_symbol}700/month)", 'action': 'job_cashier'}
         ]
         socio_class = self.determine_socio_class()
-        if (self.player.intelligence >= 60 or self.player.wealth >= 20000) and socio_class != SocioEconomicClass.POOR:
+        if (self.player.intelligence >= 60 or self.player.wealth >= 20000) and socio_class != SocioEconomicClass.POOR and self.player.wealth >= 20000:
             options.append({'text': f"Go to College (-{currency_symbol}20,000)", 'action': 'college'})
         if self.player.wealth >= 10000 and socio_class == SocioEconomicClass.WEALTHY:
             options.append({'text': f"Travel the World (-{currency_symbol}10,000)", 'action': 'travel'})
@@ -328,6 +351,27 @@ class LifeSimulator:
             'choices': [
                 {'text': f"Date {partner.first_name} ({compatibility}% match)", 'action': 'date'},
                 {'text': "Remain single", 'action': 'single'}
+            ]
+        }
+
+    def marriage_event(self):
+        self.current_event = {
+            'title': "Marriage Proposal",
+            'description': f"{self.player.first_name} and {self.player.spouse.full_name()} are considering marriage.",
+            'choices': [
+                {'text': "Get married", 'action': 'marry'},
+                {'text': "Stay unmarried", 'action': 'decline'}
+            ]
+        }
+
+    def pregnancy_event(self):
+        currency_code, currency_symbol = self.get_currency()
+        self.current_event = {
+            'title': "Pregnancy Decision",
+            'description': f"{self.player.first_name} is considering starting a family with {self.player.spouse.first_name}.",
+            'choices': [
+                {'text': f"Try for a baby (-{currency_symbol}5,000)", 'action': 'have_child'},
+                {'text': "Wait for now", 'action': 'wait'}
             ]
         }
 
@@ -361,7 +405,7 @@ class LifeSimulator:
             'title': "Immigration Opportunity",
             'description': f"{self.player.first_name} has a chance to move and adopt {new_nationality} nationality.",
             'choices': [
-                {'text': f"Immigrate to become {new_nationality} (-{currency_symbol}25,000)", 'action': 'immigrate', 'nationality': new_nationality},
+                {'text': f"Immigrate to become {new_nationality} (-{currency_symbol}25,000)", 'action': 'immigrate', 'nationality': str(new_nationality)},
                 {'text': "Stay in current country", 'action': 'decline'}
             ]
         }
@@ -372,7 +416,7 @@ class LifeSimulator:
             'title': "Spiritual Journey",
             'description': f"{self.player.first_name} is exploring {new_religion} and considering conversion.",
             'choices': [
-                {'text': f"Convert to {new_religion}", 'action': 'convert', 'religion': new_religion},
+                {'text': f"Convert to {new_religion}", 'action': 'convert', 'religion': str(new_religion)},
                 {'text': "Keep current beliefs", 'action': 'decline'}
             ]
         }
@@ -453,11 +497,12 @@ class LifeSimulator:
         )
 
     def child_event(self):
+        currency_code, currency_symbol = self.get_currency()
         self.current_event = {
             'title': "Family Planning",
             'description': f"{self.player.first_name} and {self.player.spouse.first_name} consider having a child.",
             'choices': [
-                {'text': "Have a baby", 'action': 'have_child'},
+                {'text': f"Have a baby (-{currency_symbol}5,000)", 'action': 'have_child'},
                 {'text': "Wait for now", 'action': 'wait'}
             ]
         }
@@ -474,10 +519,13 @@ class LifeSimulator:
             self.paused = False
             self.current_event = None
         elif action == 'college':
-            self.player.education = EducationLevel.COLLEGE
-            self.player.wealth -= 20000
-            self.family_assets -= 20000
-            self.add_notification(f"{self.player.first_name} enrolled in college!")
+            if self.player.wealth >= 20000:
+                self.player.education = EducationLevel.COLLEGE
+                self.player.wealth -= 20000
+                self.family_assets -= 20000
+                self.add_notification(f"{self.player.first_name} enrolled in college!")
+            else:
+                self.add_notification(f"{self.player.first_name} cannot afford college.")
             self.current_event = None
         elif action.startswith('job_'):
             if action == 'job_waiter':
@@ -500,47 +548,66 @@ class LifeSimulator:
             self.add_notification(f"{self.player.first_name} started working as {self.player.job}!")
             self.current_event = None
         elif action == 'have_child':
-            child = self.generate_person(age=0)
-            self.player.children.append(child)
-            self.player.wealth -= 5000
-            self.family_assets -= 5000
-            self.add_notification(f"{self.player.first_name} and {self.player.spouse.first_name} had a baby named {child.first_name}!")
+            if self.player.wealth >= 5000:
+                child = self.generate_person(age=0)
+                self.player.children.append(child)
+                self.player.wealth -= 5000
+                self.family_assets -= 5000
+                self.add_notification(f"{self.player.first_name} and {self.player.spouse.first_name} had a baby named {child.first_name}!")
+            else:
+                self.add_notification(f"{self.player.first_name} cannot afford to have a child.")
             self.current_event = None
         elif action == 'adopt':
-            child = self.generate_person(age=random.randint(0, 10))
-            self.player.children.append(child)
-            self.player.wealth -= 15000
-            self.family_assets -= 15000
-            self.add_notification(f"{self.player.first_name} adopted {child.full_name()}!")
+            if self.player.wealth >= 15000:
+                child = self.generate_person(age=random.randint(0, 10))
+                self.player.children.append(child)
+                self.player.wealth -= 15000
+                self.family_assets -= 15000
+                self.add_notification(f"{self.player.first_name} adopted {child.full_name()}!")
+            else:
+                self.add_notification(f"{self.player.first_name} cannot afford to adopt.")
             self.current_event = None
         elif action == 'reassign':
-            new_gender = self.current_event['description'].split('as ')[-1].strip('.')
-            self.player.gender = new_gender
-            self.player.wealth -= 10000
-            self.family_assets -= 10000
-            self.add_notification(f"{self.player.first_name} transitioned to {new_gender}!")
+            if self.player.wealth >= 10000:
+                new_gender = self.current_event['description'].split('as ')[-1].strip('.')
+                self.player.gender = new_gender
+                self.player.wealth -= 10000
+                self.family_assets -= 10000
+                self.add_notification(f"{self.player.first_name} transitioned to {new_gender}!")
+            else:
+                self.add_notification(f"{self.player.first_name} cannot afford gender reassignment.")
             self.current_event = None
         elif action == 'immigrate':
-            self.player.nationality = choice.get('nationality')
-            self.player.wealth -= 25000
-            self.family_assets -= 25000
-            self.add_notification(f"{self.player.first_name} immigrated and is now {self.player.nationality}!")
+            if self.player.wealth >= 25000:
+                nationality_map = {str(n): n for n in Nationality}
+                self.player.nationality = nationality_map[choice.get('nationality')]
+                self.player.wealth -= 25000
+                self.family_assets -= 25000
+                self.add_notification(f"{self.player.first_name} immigrated and is now {self.player.nationality}!")
+            else:
+                self.add_notification(f"{self.player.first_name} cannot afford to immigrate.")
             self.current_event = None
         elif action == 'convert':
-            self.player.religion = choice.get('religion')
+            religion_map = {str(r): r for r in Religion}
+            self.player.religion = religion_map[choice.get('religion')]
             self.add_notification(f"{self.player.first_name} converted to {self.player.religion}!")
             self.current_event = None
         elif action == 'date':
             partner = self.generate_person(age=self.player.age)
             self.player.spouse = partner
-            if self.player.gender == "Female" and partner.gender == "Male":
-                self.player.last_name = partner.last_name
-                self.add_notification(f"{self.player.first_name} married {partner.full_name()} and took the last name {partner.last_name}!")
-            elif partner.gender == "Female" and self.player.gender == "Male":
-                partner.last_name = self.player.last_name
-                self.add_notification(f"{partner.first_name} married {self.player.full_name()} and took the last name {self.player.last_name}!")
+            self.add_notification(f"{self.player.first_name} is now dating {partner.full_name()}!")
+            self.current_event = None
+        elif action == 'marry':
+            self.player.is_married = True
+            self.player.spouse.is_married = True
+            if self.player.gender == "Female" and self.player.spouse.gender == "Male":
+                self.player.last_name = self.player.spouse.last_name
+                self.add_notification(f"{self.player.first_name} married {self.player.spouse.full_name()} and took the last name {self.player.spouse.last_name}!")
+            elif self.player.spouse.gender == "Female" and self.player.gender == "Male":
+                self.player.spouse.last_name = self.player.last_name
+                self.add_notification(f"{self.player.spouse.first_name} married {self.player.full_name()} and took the last name {self.player.last_name}!")
             else:
-                self.add_notification(f"{self.player.first_name} is now dating {partner.full_name()}!")
+                self.add_notification(f"{self.player.first_name} married {self.player.spouse.full_name()}!")
             self.current_event = None
         elif action == 'new_life':
             self.__init__()
